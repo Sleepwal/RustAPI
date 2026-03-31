@@ -28,6 +28,20 @@ pub async fn send_request(request: ApiRequest) -> Result<ApiResponse, String> {
     match request.method {
         HttpMethod::Post | HttpMethod::Put | HttpMethod::Patch => {
             if !request.body.is_empty() {
+                // Check if Content-Type header is already set
+                let has_content_type = request.headers.iter().any(|h| h.key.eq_ignore_ascii_case("Content-Type"));
+                
+                // If not set, try to detect content type
+                if !has_content_type {
+                    if serde_json::from_str::<serde_json::Value>(&request.body).is_ok() {
+                        // Looks like JSON
+                        req_builder = req_builder.header("Content-Type", "application/json");
+                    } else {
+                        // Default to plain text
+                        req_builder = req_builder.header("Content-Type", "text/plain");
+                    }
+                }
+                
                 req_builder = req_builder.body(request.body.clone());
             }
         }
