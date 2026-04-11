@@ -104,117 +104,114 @@ from `Authorization: Session <id>` to `Authorization: Bearer <token>`
 Closes #45
 ```
 
-## 详细版提交信息规范
+## 更新日志规范
 
-对于重要的性能优化、架构重构或涉及多个模块的重大改动,推荐使用详细版提交信息格式,以便团队成员和未来的自己快速理解变更内容。
+对于涉及多个文件、功能复杂或需要详细记录的改动,推荐在提交信息中使用简洁版,同时将详细信息记录在更新日志中。
 
-### 何时使用详细版
+### 更新日志位置
 
-建议在以下情况使用详细版提交信息:
+项目根目录的 `CHANGELOG.md` 文件。
 
-- **性能优化**: 涉及多处性能改进的提交
-- **架构调整**: 修改核心数据结构或模块职责
-- **多文件变更**: 同时修改 5 个以上文件
-- **重要功能**: 添加关键功能或破坏性变更
-- **复杂修复**: 涉及多个关联问题的修复
+### 更新日志格式
 
-### 详细版格式
+```markdown
+## [Unreleased]
 
-```
-<type>: <description>
+### YYYY-MM-DD - 版本描述或功能分类
 
-【核心优化】(或【新功能】/【Bug 修复】/【架构调整】等分类标题)
+#### 新增
+- 功能 A 的详细描述
+- 功能 B 的详细描述
 
-1. 优化点一 (影响类别)
-   - 具体改动说明
-   - 实现方式或策略
-   - 预期效果或收益
+#### 优化
+- 性能优化点 1 的具体实现和影响
+- 性能优化点 2 的具体实现和收益
 
-2. 优化点二 (影响类别)
-   - 具体改动说明
-   - 实现方式或策略
-   - 预期效果或收益
+#### 修复
+- Bug 修复的详细描述和根因分析
 
-【代码质量】(可选)
-
-- 代码检查工具验证结果
-- 测试覆盖情况
-- 文档更新状态
-
-【影响范围】
-
-修改文件:
-  - 文件名: 具体改动内容
-  - 文件名: 具体改动内容
+#### 变更
+- 破坏性变更或重要架构调整说明
 ```
 
-### 详细版示例
+### 提交信息 vs 更新日志
 
+| 内容 | 位置 | 详细程度 |
+|------|------|----------|
+| 提交标题 | Git 提交信息 | 简洁,一句话概括 |
+| 改动摘要 | Git 提交信息(可选 Body) | 中等,2-3 句说明 |
+| 技术细节 | CHANGELOG.md | 详细,包含实现策略、影响范围、验证结果 |
+| 代码级说明 | 代码注释/文档 | 非常详细,包含示例和使用说明 |
+
+### 工作流程
+
+1. **提交代码时**: 使用简洁版提交信息
+   ```
+   perf: 优化 HTTP 客户端复用和响应数据共享
+   ```
+
+2. **更新 CHANGELOG.md**: 在同一 PR 或提交中添加详细记录
+   ```markdown
+   ## [Unreleased]
+
+   ### 2026-04-11 - 性能优化
+
+   #### 优化
+   - HTTP 客户端复用: 在 ApiClientApp 中持有 reqwest::Client 实例,
+     避免每次请求创建新客户端,减少连接池重建开销
+   - Arc 共享响应数据: ApiResponse.headers 改为 Arc 包装,
+     HistoryItem.response 改为 Option<Arc<ApiResponse>>,
+     避免大型数据 clone,降低内存分配和拷贝开销
+   - 历史记录数量限制: 添加 MAX_HISTORY_SIZE=100 限制,
+     使用 FIFO 策略自动移除最旧记录,防止内存泄漏
+
+   #### 代码质量
+   - 修复所有 Clippy 警告
+   - 添加 url crate 依赖用于 URL 格式验证
+   ```
+
+3. **代码审查时**: 审查者可以同时查看 Git 提交信息和 CHANGELOG.md,
+   获取完整的上下文信息。
+
+### 提交信息示例
+
+**简单改动**:
 ```
-perf: 优化 HTTP 客户端复用、历史记录限制、URL 验证和响应数据共享
-
-【核心优化】
-
-1. HTTP 客户端复用 (性能提升)
-   - 在 ApiClientApp 结构体中持有 reqwest::Client 实例
-   - 避免每次请求都创建新客户端,减少连接池重建开销
-   - 修改 send_request 函数签名,接收 &Client 参数
-
-2. 历史记录数量限制 (内存保护)
-   - 添加 MAX_HISTORY_SIZE 常量 (100 条)
-   - 实现 FIFO 策略自动移除最旧记录
-   - 为 RequestHistory 添加 add/clear/len/is_empty 方法
-   - 防止无限增长导致内存泄漏
-
-3. URL 验证与自动补全 (健壮性提升)
-   - 添加 ApiRequest::validate_and_normalize_url 方法
-   - 验证 URL 非空且格式合法
-   - 自动补全缺失的 https:// 协议前缀
-   - 添加 url crate 依赖用于格式验证
-
-4. Arc 共享响应数据 (减少 clone 开销)
-   - ApiResponse.headers 改为 Arc<Vec<(String, String)>>
-   - HistoryItem.response 改为 Option<Arc<ApiResponse>>
-   - 避免历史记录和 UI 渲染时的大型数据 clone
-   - 显著降低内存分配和拷贝开销
-
-【代码质量】
-
-- 修复所有 Clippy 警告 (collapsible_if, manual_range_contains, doc_overindented_list_items)
-- cargo check 编译通过
-- cargo clippy -- -D warnings 零警告
-
-【影响范围】
-
-修改文件:
-  - Cargo.toml: 添加 url 依赖
-  - Cargo.lock: 更新依赖树
-  - src/app.rs: 添加 http_client 字段,更新请求/历史逻辑
-  - src/http.rs: 修改函数签名,使用 Arc 包装 headers
-  - src/models.rs: 添加验证/Arc/历史记录管理
-  - src/ui/history_panel.rs: 使用新的历史 API
-  - src/ui/response_panel.rs: 优化数据访问模式
+fix: resolve button alignment issue
 ```
 
-### 详细版编写建议
+**中等复杂度**:
+```
+feat: add request history panel
 
-1. **分类标题**: 使用中文方括号【】标注,突出改动的主题
-2. **编号列表**: 使用阿拉伯数字编号,每条优化点独立说明
-3. **影响类别**: 在圆括号中标注 (性能提升)/(内存保护)/(健壮性提升) 等
-4. **具体描述**: 使用短句,每行不超过 72 个字符
-5. **技术细节**: 包含关键类型、函数名、常量名等,便于代码审查
-6. **验证结果**: 列出通过的检查和测试,增强可信度的同时记录
+Implement scrollable history list with save, load, and clear functionality.
+Display method colors and relative timestamps.
+```
 
-### 简化版 vs 详细版选择指南
+**复杂改动(简洁版)**:
+```
+perf: optimize HTTP client reuse, history limits, and Arc sharing
 
-| 场景 | 推荐格式 | 示例 |
-|------|----------|------|
-| 小功能/小修复 | 简单版 | `fix: resolve button alignment issue` |
-| 单模块改动 | 简单版 + Body | `feat: add history panel\n\nImplement...` |
-| 多模块性能优化 | **详细版** | 见上方示例 |
-| 架构重构 | **详细版** | 包含改动前后对比 |
-| 重大功能添加 | **详细版** | 包含设计决策说明 |
-| 复杂 Bug 修复 | **详细版** | 包含根因分析和修复策略 |
+See CHANGELOG.md for detailed optimization descriptions.
+```
+
+### 更新日志编写建议
+
+1. **分组清晰**: 使用 新增/优化/修复/变更 等分类
+2. **技术细节**: 包含具体的类型名、函数名、常量名
+3. **影响说明**: 说明改动对性能、内存、用户体验的影响
+4. **验证结果**: 列出通过的检查和测试
+5. **更新时机**: 在功能开发完毕、准备提交时同步更新
+
+### 何时使用更新日志
+
+建议在以下情况使用更新日志:
+
+- **性能优化**: 多处性能改进,需要详细说明策略和收益
+- **架构调整**: 修改核心数据结构,需要说明设计决策
+- **多文件变更**: 涉及 5 个以上文件的复杂改动
+- **重要功能**: 需要详细说明使用方法和注意事项
+- **复杂修复**: 需要说明根因分析和多种修复策略
 
 ## 使用建议
 
