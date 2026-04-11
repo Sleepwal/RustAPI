@@ -86,13 +86,13 @@ fn method_color(method: HttpMethod) -> Color32 {
 /// * `app` - 可变引用应用状态，用于读取历史记录和加载请求配置
 /// * `ui` - egui UI 上下文，用于绘制界面元素
 pub fn render(app: &mut ApiClientApp, ui: &mut Ui) {
-    let history_count = app.history.requests.len();
+    let history_count = app.history.len();
 
     ui.horizontal(|ui: &mut Ui| {
         ui.heading("History");
         ui.label(format!("({})", history_count));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui: &mut Ui| {
-            if !app.history.requests.is_empty()
+            if !app.history.is_empty()
                 && ui.button("Clear All").clicked()
             {
                 app.clear_history();
@@ -102,7 +102,7 @@ pub fn render(app: &mut ApiClientApp, ui: &mut Ui) {
 
     ui.add_space(5.0);
 
-    if app.history.requests.is_empty() {
+    if app.history.is_empty() {
         ui.label("No request history yet. Send a request to see it here.");
         return;
     }
@@ -115,7 +115,7 @@ pub fn render(app: &mut ApiClientApp, ui: &mut Ui) {
             // 反向遍历，最新的请求显示在最上面
             let mut clicked_index = None;
             for (idx_reverse, item) in app.history.requests.iter().rev().enumerate() {
-                let idx = app.history.requests.len() - 1 - idx_reverse;
+                let idx = app.history.len() - 1 - idx_reverse;
                 let time_str = format_relative_time(item.timestamp);
                 let method = item.request.method;
                 let url = &item.request.url;
@@ -135,7 +135,7 @@ pub fn render(app: &mut ApiClientApp, ui: &mut Ui) {
                 let status_color = match &item.response {
                     Some(resp) => {
                         let status = resp.status;
-                        if status >= 200 && status < 300 {
+                        if (200..300).contains(&status) {
                             Color32::GREEN
                         } else if status >= 400 {
                             Color32::RED

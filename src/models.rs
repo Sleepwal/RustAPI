@@ -16,6 +16,13 @@
 
 #[allow(unused_imports)]
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+
+/// 最大历史记录数量限制。
+///
+/// 防止无限增长导致内存泄漏。当达到限制时，
+/// 最旧的记录会被自动移除。
+pub const MAX_HISTORY_SIZE: usize = 100;
 
 /// HTTP 请求方法枚举。
 ///
@@ -98,6 +105,41 @@ pub struct ApiRequest {
     pub body: String,
 }
 
+impl ApiRequest {
+    /// 验证 URL 格式并自动补全协议前缀。
+    ///
+    /// # 验证规则
+    ///
+    /// - URL 不能为空
+    /// - 必须以 `http://` 或 `https://` 开头
+    /// - 如果缺少协议前缀，自动添加 `https://`
+    ///
+    /// # 返回值
+    ///
+    /// * `Ok(String)` - 验证通过，返回补全后的 URL（如果需要补全）
+    /// * `Err(String)` - 验证失败，返回错误描述
+    pub fn validate_and_normalize_url(url: &str) -> Result<String, String> {
+        if url.is_empty() {
+            return Err("URL cannot be empty".to_string());
+        }
+
+        // 如果已经有协议前缀，直接使用
+        let normalized_url = if url.starts_with("http://") || url.starts_with("https://") {
+            url.to_string()
+        } else {
+            // 自动补全 https:// 前缀
+            format!("https://{}", url)
+        };
+
+        // 使用 url crate 验证格式（reqwest 依赖已包含）
+        if let Err(e) = normalized_url.parse::<url::Url>() {
+            return Err(format!("Invalid URL format: {}", e));
+        }
+
+        Ok(normalized_url)
+    }
+}
+
 /// HTTP 请求头键值对。
 ///
 /// 表示一个自定义请求头，如 `Content-Type: application/json`。
@@ -127,7 +169,8 @@ pub struct ApiResponse {
     /// HTTP 状态文本（如 "OK"、"Not Found"）。
     pub status_text: String,
     /// 响应头列表，每个元素为 (键, 值) 的元组。
-    pub headers: Vec<(String, String)>,
+    /// 使用 Arc 包装以避免多次 clone。
+    pub headers: Arc<Vec<(String, String)>>,
     /// 响应体内容，JSON 响应会自动格式化为美化输出。
     pub body: String,
     /// 请求耗时，单位为毫秒。
@@ -153,6 +196,41 @@ impl Default for RequestHistory {
     }
 }
 
+impl RequestHistory {
+    /// 添加新的历史记录条目。
+    ///
+    /// 当历史记录数量达到 `MAX_HISTORY_SIZE` 限制时，
+    /// 会自动移除最旧的记录（FIFO 策略）。
+    ///
+    /// # 参数
+    ///
+    /// * `item` - 要添加的历史记录条目。
+    pub fn add(&mut self, item: HistoryItem) {
+        self.requests.push(item);
+        // 如果超过限制，移除最旧的记录
+        if self.requests.len() > MAX_HISTORY_SIZE {
+            // 保留最新的 MAX_HISTORY_SIZE 条记录
+            let remove_count = self.requests.len() - MAX_HISTORY_SIZE;
+            self.requests.drain(0..remove_count);
+        }
+    }
+
+    /// 清空所有请求历史记录。
+    pub fn clear(&mut self) {
+        self.requests.clear();
+    }
+
+    /// 获取当前历史记录数量。
+    pub fn len(&self) -> usize {
+        self.requests.len()
+    }
+
+    /// 检查历史记录是否为空。
+    pub fn is_empty(&self) -> bool {
+        self.requests.is_empty()
+    }
+}
+
 /// 单条历史记录条目。
 ///
 /// 将一次完整的请求-响应对记录下来，包含时间戳、请求和可选的响应。
@@ -164,5 +242,6 @@ pub struct HistoryItem {
     /// 发送的请求内容。
     pub request: ApiRequest,
     /// 接收到的响应，请求失败时为 `None`。
-    pub response: Option<ApiResponse>,
+    /// 使用 Arc 包装以避免大型数据的 clone。
+    pub response: Option<Arc<ApiResponse>>,
 }

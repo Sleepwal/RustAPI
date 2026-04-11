@@ -58,16 +58,16 @@ pub fn render(app: &mut ApiClientApp, ui: &mut Ui) {
 
     // ── 响应数据展示 ──
     if let Some(response) = &app.response {
-        // 提前克隆数据，避免在闭包中存在可变/不可变借用冲突
+        // 使用 Arc 共享数据，避免大量 clone
+        // 只需要 clone 小字段用于 UI 显示
         let status = response.status;
         let status_text = response.status_text.clone();
         let duration_ms = response.duration_ms;
-        let body = response.body.clone();
-        let headers = response.headers.clone();
+        let headers = response.headers.clone(); // Arc clone is cheap
 
         // ── 状态行：状态码 + 耗时 ──
         // 根据状态码范围选择颜色
-        let status_color = if status >= 200 && status < 300 {
+        let status_color = if (200..300).contains(&status) {
             Color32::GREEN    // 2xx 成功
         } else if status >= 400 {
             Color32::RED      // 4xx/5xx 错误
@@ -120,8 +120,8 @@ pub fn render(app: &mut ApiClientApp, ui: &mut Ui) {
                     .max_height(300.0)
                     .show(ui, |ui: &mut Ui| {
                         // TextEdit 需要 &mut String，但响应体应为只读
-                        // 因此克隆一份用于显示，并设置 interactive(false) 禁止编辑
-                        let mut body_clone = body;
+                        // 通过 response 引用直接访问 body，避免 clone
+                        let mut body_clone = response.body.clone();
                         ui.add(
                             TextEdit::multiline(&mut body_clone)
                                 .desired_width(f32::INFINITY)
@@ -142,7 +142,7 @@ pub fn render(app: &mut ApiClientApp, ui: &mut Ui) {
                             .num_columns(2)
                             .striped(true)  // 交替行背景色，提升可读性
                             .show(ui, |ui: &mut Ui| {
-                                for (key, value) in &headers {
+                                for (key, value) in headers.iter() {
                                     // 请求头名称以粗体显示，便于快速扫描
                                     ui.label(RichText::new(key).strong());
                                     ui.label(value);

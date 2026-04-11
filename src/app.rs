@@ -29,6 +29,7 @@
 use crate::models::{ApiRequest, ApiResponse, RequestHistory};
 use crate::ui;
 use poll_promise::Promise;
+use reqwest::Client;
 
 /// API 客户端应用的核心状态结构体。
 ///
@@ -48,6 +49,11 @@ pub struct ApiClientApp {
     pub response: Option<ApiResponse>,
     /// 请求历史记录容器。
     pub history: RequestHistory,
+    /// 复用的 HTTP 客户端实例。
+    ///
+    /// 持有 Client 实例以避免每次请求都创建新客户端，
+    /// 提升性能并减少资源消耗。
+    pub http_client: Client,
     /// 正在进行的异步请求的 Promise。
     ///
     /// 使用 `poll-promise` 库实现，允许在 egui 的同步渲染循环中
@@ -87,6 +93,7 @@ impl Default for ApiClientApp {
             },
             response: None,
             history: RequestHistory::default(),
+            http_client: Client::new(),
             pending_request: None,
             error_message: None,
             active_response_tab: ResponseTab::Body,
@@ -102,7 +109,7 @@ impl ApiClientApp {
     /// # 参数
     ///
     /// * `_cc` - eframe 的创建上下文，可用于初始化字体、样式等。
-    ///           当前未使用，保留以备将来扩展。
+    ///   当前未使用，保留以备将来扩展。
     ///
     /// # 返回值
     ///
@@ -118,7 +125,8 @@ impl ApiClientApp {
     ///
     /// # 前置条件
     ///
-    /// URL 不能为空，否则会设置错误消息并直接返回。
+    /// URL 不能为空，且必须是有效的格式。会先尝试自动补全协议前缀，
+    /// 如果验证失败则设置错误消息并返回。
     ///
     /// # 行为说明
     ///
@@ -127,9 +135,18 @@ impl ApiClientApp {
     /// - 清除之前的错误消息：每次发送新请求时重置错误状态
     /// - 设置 `pending_request`：`check_response` 方法会轮询此 Promise
     pub fn send_request(&mut self) {
-        if self.request.url.is_empty() {
-            self.error_message = Some("URL cannot be empty".to_string());
-            return;
+        // 验证并补全 URL
+        match ApiRequest::validate_and_normalize_url(&self.request.url) {
+            Ok(normalized_url) => {
+                // 如果 URL 被自动补全，更新请求配置
+                if normalized_url != self.request.url {
+                    self.request.url = normalized_url;
+                }
+            }
+            Err(err) => {
+                self.error_message = Some(err);
+                return;
+            }
         }
 
         // 清除之前的错误状态
@@ -137,11 +154,13 @@ impl ApiClientApp {
 
         // 克隆请求配置，使异步任务拥有独立的数据副本
         let request = self.request.clone();
+        // 克隆 HTTP 客户端引用（Arc 包装，clone 代价小）
+        let client = self.http_client.clone();
 
         // 在 tokio 运行时中异步发送请求
         // Promise::spawn_async 不会阻塞当前线程
         self.pending_request = Some(Promise::spawn_async(async move {
-            crate::http::send_request(request).await
+            crate::http::send_request(&client, request).await
         }));
     }
 
@@ -157,33 +176,34 @@ impl ApiClientApp {
     /// - 请求失败：更新 `error_message`，清除 `response`
     /// - 无论成功失败，都清除 `pending_request`（设为 `None`）
     pub fn check_response(&mut self) {
-        if let Some(promise) = &self.pending_request {
-            if let Some(result) = promise.ready() {
-                match result {
-                    Ok(response) => {
-                        // 保存历史记录
-                        self.history.requests.push(crate::models::HistoryItem {
-                            timestamp: std::time::SystemTime::now(),
-                            request: self.request.clone(),
-                            response: Some(response.clone()),
-                        });
-                        self.response = Some(response.clone());
-                        self.error_message = None;
-                    }
-                    Err(err) => {
-                        // 也保存失败的请求历史
-                        self.history.requests.push(crate::models::HistoryItem {
-                            timestamp: std::time::SystemTime::now(),
-                            request: self.request.clone(),
-                            response: None,
-                        });
-                        self.error_message = Some(err.clone());
-                        self.response = None;
-                    }
+        if let Some(promise) = &self.pending_request
+            && let Some(result) = promise.ready() {
+            match result {
+                Ok(response) => {
+                    // 使用 Arc 包装响应，避免后续 clone
+                    let response_arc = std::sync::Arc::new(response.clone());
+                    // 保存历史记录
+                    self.history.add(crate::models::HistoryItem {
+                        timestamp: std::time::SystemTime::now(),
+                        request: self.request.clone(),
+                        response: Some(response_arc.clone()),
+                    });
+                    self.response = Some(response.clone());
+                    self.error_message = None;
                 }
-                // 请求已完成，清除 Promise 使 is_requesting() 返回 false
-                self.pending_request = None;
+                Err(err) => {
+                    // 也保存失败的请求历史
+                    self.history.add(crate::models::HistoryItem {
+                        timestamp: std::time::SystemTime::now(),
+                        request: self.request.clone(),
+                        response: None,
+                    });
+                    self.error_message = Some(err.clone());
+                    self.response = None;
+                }
             }
+            // 请求已完成，清除 Promise 使 is_requesting() 返回 false
+            self.pending_request = None;
         }
     }
 
@@ -260,7 +280,7 @@ impl ApiClientApp {
 
     /// 清空所有请求历史记录。
     pub fn clear_history(&mut self) {
-        self.history.requests.clear();
+        self.history.clear();
     }
 
     /// 根据 HTTP 方法自动更新 URL。
