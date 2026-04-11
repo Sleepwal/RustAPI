@@ -116,6 +116,7 @@ pub fn render(app: &mut ApiClientApp, ui: &mut Ui) {
                 // 响应体内容展示
                 // 使用 ScrollArea 包裹以支持长内容的滚动浏览
                 ScrollArea::vertical()
+                    .id_source("response_body_scroll")
                     .max_height(300.0)
                     .show(ui, |ui: &mut Ui| {
                         // TextEdit 需要 &mut String，但响应体应为只读
@@ -134,6 +135,7 @@ pub fn render(app: &mut ApiClientApp, ui: &mut Ui) {
                 // 响应头键值对展示
                 // 使用 Grid 组件实现表格布局，带斑马纹
                 ScrollArea::vertical()
+                    .id_source("response_headers_scroll")
                     .max_height(300.0)
                     .show(ui, |ui: &mut Ui| {
                         egui::Grid::new("response_headers_grid")
