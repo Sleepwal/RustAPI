@@ -24,6 +24,11 @@ use std::sync::Arc;
 /// 最旧的记录会被自动移除。
 pub const MAX_HISTORY_SIZE: usize = 100;
 
+/// 最大请求体大小限制（10 MB）。
+///
+/// 防止发送超大请求体导致内存问题或网络超时。
+pub const MAX_BODY_SIZE: usize = 10_000_000;
+
 /// API 请求错误类型。
 ///
 /// 结构化的错误枚举，替代简单的 String 错误，
@@ -36,6 +41,8 @@ pub enum ApiError {
     NetworkError(String),
     /// 读取响应体失败。
     ResponseReadError(String),
+    /// 请求体过大。
+    BodyTooLarge(usize),
 }
 
 impl ApiError {
@@ -49,6 +56,12 @@ impl ApiError {
             ApiError::InvalidUrl(url) => format!("Invalid URL format: {}", url),
             ApiError::NetworkError(msg) => format!("Network error: {}", msg),
             ApiError::ResponseReadError(msg) => format!("Failed to read response: {}", msg),
+            ApiError::BodyTooLarge(size) => format!(
+                "Request body too large ({} bytes). Maximum allowed: {} bytes ({} MB)",
+                size,
+                MAX_BODY_SIZE,
+                MAX_BODY_SIZE / 1_000_000
+            ),
         }
     }
 }
@@ -59,6 +72,12 @@ impl std::fmt::Display for ApiError {
             ApiError::InvalidUrl(url) => write!(f, "Invalid URL: {}", url),
             ApiError::NetworkError(msg) => write!(f, "Network error: {}", msg),
             ApiError::ResponseReadError(msg) => write!(f, "Response read error: {}", msg),
+            ApiError::BodyTooLarge(size) => write!(
+                f,
+                "Body too large: {} bytes (max {} MB)",
+                size,
+                MAX_BODY_SIZE / 1_000_000
+            ),
         }
     }
 }

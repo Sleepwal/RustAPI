@@ -55,6 +55,11 @@ pub async fn send_request(client: &Client, request: ApiRequest) -> Result<ApiRes
     // 步骤1：记录请求开始时间，用于计算总耗时
     let start = Instant::now();
 
+    // 步骤1.2：验证请求体大小
+    if request.body.len() > crate::models::MAX_BODY_SIZE {
+        return Err(ApiError::BodyTooLarge(request.body.len()));
+    }
+
     // 步骤1.5：创建带超时的请求
     let timeout_duration = Duration::from_secs(request.timeout_secs);
 
