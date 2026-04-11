@@ -104,6 +104,118 @@ from `Authorization: Session <id>` to `Authorization: Bearer <token>`
 Closes #45
 ```
 
+## 详细版提交信息规范
+
+对于重要的性能优化、架构重构或涉及多个模块的重大改动,推荐使用详细版提交信息格式,以便团队成员和未来的自己快速理解变更内容。
+
+### 何时使用详细版
+
+建议在以下情况使用详细版提交信息:
+
+- **性能优化**: 涉及多处性能改进的提交
+- **架构调整**: 修改核心数据结构或模块职责
+- **多文件变更**: 同时修改 5 个以上文件
+- **重要功能**: 添加关键功能或破坏性变更
+- **复杂修复**: 涉及多个关联问题的修复
+
+### 详细版格式
+
+```
+<type>: <description>
+
+【核心优化】(或【新功能】/【Bug 修复】/【架构调整】等分类标题)
+
+1. 优化点一 (影响类别)
+   - 具体改动说明
+   - 实现方式或策略
+   - 预期效果或收益
+
+2. 优化点二 (影响类别)
+   - 具体改动说明
+   - 实现方式或策略
+   - 预期效果或收益
+
+【代码质量】(可选)
+
+- 代码检查工具验证结果
+- 测试覆盖情况
+- 文档更新状态
+
+【影响范围】
+
+修改文件:
+  - 文件名: 具体改动内容
+  - 文件名: 具体改动内容
+```
+
+### 详细版示例
+
+```
+perf: 优化 HTTP 客户端复用、历史记录限制、URL 验证和响应数据共享
+
+【核心优化】
+
+1. HTTP 客户端复用 (性能提升)
+   - 在 ApiClientApp 结构体中持有 reqwest::Client 实例
+   - 避免每次请求都创建新客户端,减少连接池重建开销
+   - 修改 send_request 函数签名,接收 &Client 参数
+
+2. 历史记录数量限制 (内存保护)
+   - 添加 MAX_HISTORY_SIZE 常量 (100 条)
+   - 实现 FIFO 策略自动移除最旧记录
+   - 为 RequestHistory 添加 add/clear/len/is_empty 方法
+   - 防止无限增长导致内存泄漏
+
+3. URL 验证与自动补全 (健壮性提升)
+   - 添加 ApiRequest::validate_and_normalize_url 方法
+   - 验证 URL 非空且格式合法
+   - 自动补全缺失的 https:// 协议前缀
+   - 添加 url crate 依赖用于格式验证
+
+4. Arc 共享响应数据 (减少 clone 开销)
+   - ApiResponse.headers 改为 Arc<Vec<(String, String)>>
+   - HistoryItem.response 改为 Option<Arc<ApiResponse>>
+   - 避免历史记录和 UI 渲染时的大型数据 clone
+   - 显著降低内存分配和拷贝开销
+
+【代码质量】
+
+- 修复所有 Clippy 警告 (collapsible_if, manual_range_contains, doc_overindented_list_items)
+- cargo check 编译通过
+- cargo clippy -- -D warnings 零警告
+
+【影响范围】
+
+修改文件:
+  - Cargo.toml: 添加 url 依赖
+  - Cargo.lock: 更新依赖树
+  - src/app.rs: 添加 http_client 字段,更新请求/历史逻辑
+  - src/http.rs: 修改函数签名,使用 Arc 包装 headers
+  - src/models.rs: 添加验证/Arc/历史记录管理
+  - src/ui/history_panel.rs: 使用新的历史 API
+  - src/ui/response_panel.rs: 优化数据访问模式
+```
+
+### 详细版编写建议
+
+1. **分类标题**: 使用中文方括号【】标注,突出改动的主题
+2. **编号列表**: 使用阿拉伯数字编号,每条优化点独立说明
+3. **影响类别**: 在圆括号中标注 (性能提升)/(内存保护)/(健壮性提升) 等
+4. **具体描述**: 使用短句,每行不超过 72 个字符
+5. **技术细节**: 包含关键类型、函数名、常量名等,便于代码审查
+6. **验证结果**: 列出通过的检查和测试,增强可信度的同时记录
+
+### 简化版 vs 详细版选择指南
+
+| 场景 | 推荐格式 | 示例 |
+|------|----------|------|
+| 小功能/小修复 | 简单版 | `fix: resolve button alignment issue` |
+| 单模块改动 | 简单版 + Body | `feat: add history panel\n\nImplement...` |
+| 多模块性能优化 | **详细版** | 见上方示例 |
+| 架构重构 | **详细版** | 包含改动前后对比 |
+| 重大功能添加 | **详细版** | 包含设计决策说明 |
+| 复杂 Bug 修复 | **详细版** | 包含根因分析和修复策略 |
+
 ## 使用建议
 
 1. **提交前检查**：
