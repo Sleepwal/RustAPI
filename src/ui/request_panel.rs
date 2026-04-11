@@ -53,6 +53,7 @@ pub fn render(app: &mut ApiClientApp, ui: &mut Ui) {
     ui.horizontal(|ui: &mut Ui| {
         // HTTP 方法下拉选择框
         // 使用 ComboBox 组件，固定宽度 100px
+        let prev_method = app.request.method;
         ComboBox::from_id_source("method_selector")
             .selected_text(app.request.method.to_string())
             .width(100.0)
@@ -65,6 +66,12 @@ pub fn render(app: &mut ApiClientApp, ui: &mut Ui) {
                     );
                 }
             });
+
+        // 检测方法是否切换，切换时自动更新 URL 和请求体
+        if app.request.method != prev_method {
+            app.update_url_for_method();
+            app.update_body_for_method();
+        }
 
         ui.add_space(10.0);
 
