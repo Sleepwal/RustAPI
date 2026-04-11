@@ -153,7 +153,7 @@ impl ApiClientApp {
     /// # 行为说明
     ///
     /// - `promise.ready()` 返回 `Some` 表示异步任务已完成
-    /// - 请求成功：更新 `response`，清除 `error_message`
+    /// - 请求成功：更新 `response`，清除 `error_message`，保存历史记录
     /// - 请求失败：更新 `error_message`，清除 `response`
     /// - 无论成功失败，都清除 `pending_request`（设为 `None`）
     pub fn check_response(&mut self) {
@@ -161,10 +161,22 @@ impl ApiClientApp {
             if let Some(result) = promise.ready() {
                 match result {
                     Ok(response) => {
+                        // 保存历史记录
+                        self.history.requests.push(crate::models::HistoryItem {
+                            timestamp: std::time::SystemTime::now(),
+                            request: self.request.clone(),
+                            response: Some(response.clone()),
+                        });
                         self.response = Some(response.clone());
                         self.error_message = None;
                     }
                     Err(err) => {
+                        // 也保存失败的请求历史
+                        self.history.requests.push(crate::models::HistoryItem {
+                            timestamp: std::time::SystemTime::now(),
+                            request: self.request.clone(),
+                            response: None,
+                        });
                         self.error_message = Some(err.clone());
                         self.response = None;
                     }
@@ -230,6 +242,62 @@ impl ApiClientApp {
             self.request.body = serde_json::to_string_pretty(&json).unwrap_or_default();
         }
     }
+
+    /// 加载指定索引的历史记录到当前编辑器。
+    ///
+    /// # 参数
+    ///
+    /// * `index` - 历史记录列表中的索引。
+    ///
+    /// # 安全性
+    ///
+    /// 会检查索引是否越界，越界时不执行任何操作。
+    pub fn load_history_item(&mut self, index: usize) {
+        if let Some(item) = self.history.requests.get(index) {
+            self.request = item.request.clone();
+        }
+    }
+
+    /// 清空所有请求历史记录。
+    pub fn clear_history(&mut self) {
+        self.history.requests.clear();
+    }
+
+    /// 根据 HTTP 方法自动更新 URL。
+    ///
+    /// 使用 httpbin.org 作为测试服务，不同方法对应不同的端点。
+    pub fn update_url_for_method(&mut self) {
+        use crate::models::HttpMethod;
+        self.request.url = match self.request.method {
+            HttpMethod::Get => "https://httpbin.org/get".to_string(),
+            HttpMethod::Post => "https://httpbin.org/post".to_string(),
+            HttpMethod::Put => "https://httpbin.org/put".to_string(),
+            HttpMethod::Delete => "https://httpbin.org/delete".to_string(),
+            HttpMethod::Patch => "https://httpbin.org/patch".to_string(),
+            HttpMethod::Head => "https://httpbin.org/get".to_string(),
+            HttpMethod::Options => "https://httpbin.org/get".to_string(),
+        };
+    }
+
+    /// 根据 HTTP 方法自动更新请求体。
+    ///
+    /// POST/PUT/PATCH 方法会自动填充示例 JSON 请求体，
+    /// 其他方法清空请求体。
+    pub fn update_body_for_method(&mut self) {
+        use crate::models::HttpMethod;
+        self.request.body = match self.request.method {
+            HttpMethod::Post => {
+                "{\n  \"name\": \"test\",\n  \"email\": \"test@example.com\"\n}".to_string()
+            }
+            HttpMethod::Put => {
+                "{\n  \"id\": 1,\n  \"name\": \"updated_name\"\n}".to_string()
+            }
+            HttpMethod::Patch => {
+                "{\n  \"name\": \"patched_name\"\n}".to_string()
+            }
+            _ => String::new(),
+        };
+    }
 }
 
 impl eframe::App for ApiClientApp {
@@ -264,6 +332,13 @@ impl eframe::App for ApiClientApp {
 
             // 渲染请求配置面板（方法、URL、请求头、请求体）
             ui::request_panel::render(self, ui);
+
+            ui.add_space(10.0);
+            ui.separator();
+            ui.add_space(10.0);
+
+            // 渲染请求历史记录面板
+            ui::history_panel::render(self, ui);
 
             ui.add_space(10.0);
             ui.separator();

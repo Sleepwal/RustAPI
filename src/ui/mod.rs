@@ -8,6 +8,8 @@
 //!
 //! - `request_panel` - 请求配置面板（方法、URL、请求头、请求体）
 //! - `response_panel` - 响应展示面板（状态码、响应体、响应头）
+//! - `history_panel` - 请求历史记录面板
 
+pub mod history_panel;
 pub mod request_panel;
 pub mod response_panel;
