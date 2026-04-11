@@ -59,11 +59,7 @@ pub fn render(app: &mut ApiClientApp, ui: &mut Ui) {
             .width(100.0)
             .show_ui(ui, |ui: &mut Ui| {
                 for method in HttpMethod::ALL {
-                    ui.selectable_value(
-                        &mut app.request.method,
-                        method,
-                        method.to_string(),
-                    );
+                    ui.selectable_value(&mut app.request.method, method, method.to_string());
                 }
             });
 
@@ -95,6 +91,18 @@ pub fn render(app: &mut ApiClientApp, ui: &mut Ui) {
         if ui.button(button_text).clicked() && !app.is_requesting() {
             app.send_request();
         }
+
+        ui.add_space(10.0);
+
+        // 超时配置输入框
+        ui.label("Timeout:");
+        ui.add(
+            egui::DragValue::new(&mut app.request.timeout_secs)
+                .range(1..=300)
+                .speed(1)
+                .suffix("s")
+                .clamp_to_range(true),
+        );
     });
 
     ui.add_space(15.0);

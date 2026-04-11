@@ -31,9 +31,10 @@
 //!       Result<ApiResponse, String>
 //! ```
 
-use crate::models::{ApiRequest, ApiResponse, HttpMethod};
+use crate::models::{ApiError, ApiRequest, ApiResponse, HttpMethod};
 use reqwest::Client;
 use std::sync::Arc;
+use std::time::Duration;
 use std::time::Instant;
 
 /// 发送 HTTP 请求并返回格式化的响应。
@@ -50,9 +51,12 @@ use std::time::Instant;
 ///
 /// * `Ok(ApiResponse)` - 请求成功，返回包含状态码、响应头、格式化响应体和耗时的响应结构体
 /// * `Err(String)` - 请求失败，返回描述错误的字符串（网络错误、响应体读取失败等）
-pub async fn send_request(client: &Client, request: ApiRequest) -> Result<ApiResponse, String> {
+pub async fn send_request(client: &Client, request: ApiRequest) -> Result<ApiResponse, ApiError> {
     // 步骤1：记录请求开始时间，用于计算总耗时
     let start = Instant::now();
+
+    // 步骤1.5：创建带超时的请求
+    let timeout_duration = Duration::from_secs(request.timeout_secs);
 
     // 步骤2：将应用层的 HttpMethod 枚举映射为 reqwest 的 Method 类型
     let method = match request.method {
@@ -81,7 +85,10 @@ pub async fn send_request(client: &Client, request: ApiRequest) -> Result<ApiRes
         HttpMethod::Post | HttpMethod::Put | HttpMethod::Patch => {
             if !request.body.is_empty() {
                 // 检查用户是否已显式设置 Content-Type 请求头
-                let has_content_type = request.headers.iter().any(|h| h.key.eq_ignore_ascii_case("Content-Type"));
+                let has_content_type = request
+                    .headers
+                    .iter()
+                    .any(|h| h.key.eq_ignore_ascii_case("Content-Type"));
 
                 // 如果用户未设置 Content-Type，自动检测并设置
                 if !has_content_type {
@@ -104,10 +111,12 @@ pub async fn send_request(client: &Client, request: ApiRequest) -> Result<ApiRes
     }
 
     // 步骤6：发送请求，将网络错误转换为用户友好的错误消息
-    let response = req_builder
-        .send()
+    let response = tokio::time::timeout(timeout_duration, req_builder.send())
         .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .map_err(|_| {
+            ApiError::NetworkError(format!("Request timed out after {}s", request.timeout_secs))
+        })?
+        .map_err(|e| ApiError::NetworkError(e.to_string()))?;
 
     // 步骤7：计算请求总耗时（从发送到接收到响应头）
     let duration_ms = start.elapsed().as_millis() as u64;
@@ -132,7 +141,7 @@ pub async fn send_request(client: &Client, request: ApiRequest) -> Result<ApiRes
     let body = response
         .text()
         .await
-        .map_err(|e| format!("Failed to read response body: {}", e))?;
+        .map_err(|e| ApiError::ResponseReadError(e.to_string()))?;
 
     // 步骤11：尝试将响应体格式化为美化的 JSON
     // 如果不是有效的 JSON，保留原始文本

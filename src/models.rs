@@ -24,6 +24,45 @@ use std::sync::Arc;
 /// 最旧的记录会被自动移除。
 pub const MAX_HISTORY_SIZE: usize = 100;
 
+/// API 请求错误类型。
+///
+/// 结构化的错误枚举，替代简单的 String 错误，
+/// 便于错误处理和用户友好的错误消息展示。
+#[derive(Debug, Clone)]
+pub enum ApiError {
+    /// URL 格式无效。
+    InvalidUrl(String),
+    /// 网络请求失败（连接错误、超时等）。
+    NetworkError(String),
+    /// 读取响应体失败。
+    ResponseReadError(String),
+}
+
+impl ApiError {
+    /// 将错误转换为用户友好的显示消息。
+    ///
+    /// # 返回值
+    ///
+    /// 返回简短的错误描述，适合在 UI 中显示。
+    pub fn user_message(&self) -> String {
+        match self {
+            ApiError::InvalidUrl(url) => format!("Invalid URL format: {}", url),
+            ApiError::NetworkError(msg) => format!("Network error: {}", msg),
+            ApiError::ResponseReadError(msg) => format!("Failed to read response: {}", msg),
+        }
+    }
+}
+
+impl std::fmt::Display for ApiError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ApiError::InvalidUrl(url) => write!(f, "Invalid URL: {}", url),
+            ApiError::NetworkError(msg) => write!(f, "Network error: {}", msg),
+            ApiError::ResponseReadError(msg) => write!(f, "Response read error: {}", msg),
+        }
+    }
+}
+
 /// HTTP 请求方法枚举。
 ///
 /// 支持常见的 7 种 HTTP 方法，默认为 GET。
@@ -93,7 +132,7 @@ impl std::fmt::Display for HttpMethod {
 /// - `url` 在发送请求前不应为空（由 `send_request` 方法校验）
 /// - `body` 仅在 POST/PUT/PATCH 方法时有效，其他方法会被忽略
 /// - `headers` 中的 `key` 不应为空字符串（发送时自动跳过空 key）
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct ApiRequest {
     /// HTTP 请求方法，默认为 GET。
     pub method: HttpMethod,
@@ -103,6 +142,20 @@ pub struct ApiRequest {
     pub headers: Vec<Header>,
     /// 请求体内容，通常为 JSON 格式的字符串。
     pub body: String,
+    /// 请求超时时间（秒），默认为 30 秒。
+    pub timeout_secs: u64,
+}
+
+impl Default for ApiRequest {
+    fn default() -> Self {
+        Self {
+            method: HttpMethod::default(),
+            url: String::new(),
+            headers: Vec::new(),
+            body: String::new(),
+            timeout_secs: 30, // 默认 30 秒超时
+        }
+    }
 }
 
 impl ApiRequest {

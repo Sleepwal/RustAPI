@@ -26,7 +26,7 @@
 //!                                  └────────────────┘
 //! ```
 
-use crate::models::{ApiRequest, ApiResponse, RequestHistory};
+use crate::models::{ApiError, ApiRequest, ApiResponse, RequestHistory};
 use crate::ui;
 use poll_promise::Promise;
 use reqwest::Client;
@@ -58,7 +58,7 @@ pub struct ApiClientApp {
     ///
     /// 使用 `poll-promise` 库实现，允许在 egui 的同步渲染循环中
     /// 检查异步任务是否完成，而不会阻塞 UI 线程。
-    pub pending_request: Option<Promise<Result<ApiResponse, String>>>,
+    pub pending_request: Option<Promise<Result<ApiResponse, ApiError>>>,
     /// 错误消息，用于在 UI 中显示请求失败信息。
     pub error_message: Option<String>,
     /// 当前激活的响应面板标签页。
@@ -67,6 +67,8 @@ pub struct ApiClientApp {
     pub new_header_key: String,
     /// 新增请求头的 Value 输入框内容。
     pub new_header_value: String,
+    /// 最近一次请求的错误类型。
+    pub last_error: Option<ApiError>,
 }
 
 /// 响应面板的标签页枚举。
@@ -99,6 +101,7 @@ impl Default for ApiClientApp {
             active_response_tab: ResponseTab::Body,
             new_header_key: String::new(),
             new_header_value: String::new(),
+            last_error: None,
         }
     }
 }
@@ -144,13 +147,16 @@ impl ApiClientApp {
                 }
             }
             Err(err) => {
-                self.error_message = Some(err);
+                let api_err = ApiError::InvalidUrl(err);
+                self.last_error = Some(api_err.clone());
+                self.error_message = Some(api_err.user_message());
                 return;
             }
         }
 
         // 清除之前的错误状态
         self.error_message = None;
+        self.last_error = None;
 
         // 克隆请求配置，使异步任务拥有独立的数据副本
         let request = self.request.clone();
@@ -177,7 +183,8 @@ impl ApiClientApp {
     /// - 无论成功失败，都清除 `pending_request`（设为 `None`）
     pub fn check_response(&mut self) {
         if let Some(promise) = &self.pending_request
-            && let Some(result) = promise.ready() {
+            && let Some(result) = promise.ready()
+        {
             match result {
                 Ok(response) => {
                     // 使用 Arc 包装响应，避免后续 clone
@@ -190,6 +197,7 @@ impl ApiClientApp {
                     });
                     self.response = Some(response.clone());
                     self.error_message = None;
+                    self.last_error = None;
                 }
                 Err(err) => {
                     // 也保存失败的请求历史
@@ -198,7 +206,9 @@ impl ApiClientApp {
                         request: self.request.clone(),
                         response: None,
                     });
-                    self.error_message = Some(err.clone());
+                    // 使用结构化错误类型
+                    self.last_error = Some(err.clone());
+                    self.error_message = Some(err.user_message());
                     self.response = None;
                 }
             }
@@ -309,12 +319,8 @@ impl ApiClientApp {
             HttpMethod::Post => {
                 "{\n  \"name\": \"test\",\n  \"email\": \"test@example.com\"\n}".to_string()
             }
-            HttpMethod::Put => {
-                "{\n  \"id\": 1,\n  \"name\": \"updated_name\"\n}".to_string()
-            }
-            HttpMethod::Patch => {
-                "{\n  \"name\": \"patched_name\"\n}".to_string()
-            }
+            HttpMethod::Put => "{\n  \"id\": 1,\n  \"name\": \"updated_name\"\n}".to_string(),
+            HttpMethod::Patch => "{\n  \"name\": \"patched_name\"\n}".to_string(),
             _ => String::new(),
         };
     }
@@ -343,6 +349,20 @@ impl eframe::App for ApiClientApp {
         // 这样可以及时检测到 Promise 完成，而不会让用户等待太久
         if self.is_requesting() {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        }
+
+        // 键盘快捷键处理
+        // Ctrl+Enter 或 Ctrl+R: 发送请求
+        if (ctx.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::Enter))
+            || ctx.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::R)))
+            && !self.is_requesting()
+        {
+            self.send_request();
+        }
+
+        // Ctrl+L: 清空历史记录
+        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::L)) {
+            self.clear_history();
         }
 
         // 渲染主面板
